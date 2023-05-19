@@ -8,8 +8,8 @@
 
 #define FILENAME "list.txt"
 #define MAXLEN 100
-#define PDR 0.3
-#define PORT 8882
+#define PDR 0.1
+#define PORT 8886
 
 FILE *fp;
 
@@ -61,10 +61,10 @@ int main(void)
 	memset((char *)&serverAddr, 0, sizeof(struct sockaddr_in));
 	memset((char *)&client1Addr, 0, sizeof(struct sockaddr_in));
 	memset((char *)&client2Addr, 0, sizeof(struct sockaddr_in));
-	DATA_PKT rcv_pkt1, rcv_pkt2;
-	ACK_PKT ack_pkt;
-	ack_pkt.size = 0;
-	ack_pkt.type = 'A';
+	DATA_PKT rcvPkt1, rcvPkt2;
+	ACK_PKT ackPkt;
+	ackPkt.size = 0;
+	ackPkt.type = 'A';
 
 	// create a UDP socket
 	int s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP), c1, c2;
@@ -91,9 +91,9 @@ int main(void)
 	close(s);
 
 	// Confirming both connections
-	if (sendto(c1, &ack_pkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client1Addr, c1Len) == -1)
+	if (sendto(c1, &ackPkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client1Addr, c1Len) == -1)
 		die("sendTo()");
-	if (sendto(c2, &ack_pkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client2Addr, c2Len) == -1)
+	if (sendto(c2, &ackPkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client2Addr, c2Len) == -1)
 		die("sendTo()");
 
 	int c1Seq = 0, c2Seq = 0;
@@ -104,43 +104,47 @@ int main(void)
 		switch (state) {
 		case 0: {
 			if (!currClient) {
-				if (recvfrom(c1, &rcv_pkt1, sizeof(DATA_PKT), 0, (struct sockaddr *)&client1Addr, (socklen_t *)&c1Len) == -1)
+				if (recvfrom(c1, &rcvPkt1, sizeof(DATA_PKT), 0, (struct sockaddr *)&client1Addr, (socklen_t *)&c1Len) == -1)
 					die("recvfrom()");
 
 				double r = (double)rand() / RAND_MAX;
 				if (r <= PDR) {
-					printf("DROP PKT: Seq. No. = %d\n", rcv_pkt1.sq_no);
+					printf("DROP PKT: Seq. No. = %d\n", rcvPkt1.sq_no);
 					break;
 				}
 
-				if (rcv_pkt1.sq_no < c1Seq) {
-					state = 1;
+				if (rcvPkt1.sq_no < c1Seq) {
+					ackPkt.sq_no = rcvPkt1.sq_no;
+					if (sendto(c1, &ackPkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client1Addr, c1Len) == -1)
+						die("sendTo()");
 					break;
 				}
 
-				c1Seq = rcv_pkt1.sq_no + rcv_pkt1.size;
-				printf("RCVD PKT: Seq. No. = %d, Size = %d Bytes, %s\n", rcv_pkt1.sq_no, rcv_pkt1.size, rcv_pkt1.data);
+				c1Seq = rcvPkt1.sq_no + rcvPkt1.size;
+				printf("RCVD PKT: Seq. No. = %d, Size = %d Bytes, %s\n", rcvPkt1.sq_no, rcvPkt1.size, rcvPkt1.data);
 
-				writeToFile(rcv_pkt1.data, rcv_pkt1.size);
+				writeToFile(rcvPkt1.data, rcvPkt1.size);
 			} else {
-				if (recvfrom(c2, &rcv_pkt2, sizeof(DATA_PKT), 0, (struct sockaddr *)&client2Addr, (socklen_t *)&c2Len) == -1)
+				if (recvfrom(c2, &rcvPkt2, sizeof(DATA_PKT), 0, (struct sockaddr *)&client2Addr, (socklen_t *)&c2Len) == -1)
 					die("recvfrom()");
 
 				double r = (double)rand() / RAND_MAX;
 				if (r <= PDR) {
-					printf("DROP PKT: Seq. No. = %d\n", rcv_pkt2.sq_no);
+					printf("DROP PKT: Seq. No. = %d\n", rcvPkt2.sq_no);
 					break;
 				}
 
-				if (rcv_pkt2.sq_no < c2Seq) {
-					state = 1;
+				if (rcvPkt2.sq_no < c2Seq) {
+					ackPkt.sq_no = rcvPkt2.sq_no;
+					if (sendto(c2, &ackPkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client2Addr, c2Len) == -1)
+						die("sendTo()");
 					break;
 				}
 
-				c2Seq = rcv_pkt2.sq_no + rcv_pkt2.size;
-				printf("RCVD PKT: Seq. No. = %d, Size = %d Bytes, %s\n", rcv_pkt2.sq_no, rcv_pkt2.size, rcv_pkt2.data);
+				c2Seq = rcvPkt2.sq_no + rcvPkt2.size;
+				printf("RCVD PKT: Seq. No. = %d, Size = %d Bytes, %s\n", rcvPkt2.sq_no, rcvPkt2.size, rcvPkt2.data);
 
-				writeToFile(rcv_pkt2.data, rcv_pkt2.size);
+				writeToFile(rcvPkt2.data, rcvPkt2.size);
 			}
 
 			state = 1;
@@ -148,16 +152,16 @@ int main(void)
 			break;
 		}
 		case 1: {
-			ack_pkt.sq_no = !currClient ? rcv_pkt1.sq_no : rcv_pkt2.sq_no;
+			ackPkt.sq_no = !currClient ? rcvPkt1.sq_no : rcvPkt2.sq_no;
 			if (!currClient) {
-				if (sendto(c1, &ack_pkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client1Addr, c1Len) == -1)
+				if (sendto(c1, &ackPkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client1Addr, c1Len) == -1)
 					die("sendTo()");
 			} else {
-				if (sendto(c2, &ack_pkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client2Addr, c2Len) == -1)
+				if (sendto(c2, &ackPkt, sizeof(ACK_PKT), 0, (struct sockaddr *)&client2Addr, c2Len) == -1)
 					die("sendTo()");
 			}
 
-			printf("SENT ACK: Seq. No. = %d\n", ack_pkt.sq_no);
+			printf("SENT ACK: Seq. No. = %d\n", ackPkt.sq_no);
 
 			currClient = !currClient;
 			state = 0;

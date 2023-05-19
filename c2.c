@@ -64,9 +64,9 @@ int main(void)
 	int sLen = sizeof(struct sockaddr_in);
 	struct sockaddr_in serverAddr;
 	memset((char *)&serverAddr, 0, sizeof(struct sockaddr_in));
-	DATA_PKT send_pkt;
-	ACK_PKT rcv_ack;
-	send_pkt.sq_no = 0;
+	DATA_PKT sendPkt;
+	ACK_PKT rcvAck;
+	sendPkt.sq_no = 0;
 
 	int s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (s == -1)
@@ -82,34 +82,34 @@ int main(void)
 	}
 
 	// Waiting for client 2 to also connect
-	if (recvfrom(s, &rcv_ack, sizeof(ACK_PKT), 0, (struct sockaddr *)&serverAddr, (socklen_t *)&sLen) == -1)
+	if (recvfrom(s, &rcvAck, sizeof(ACK_PKT), 0, (struct sockaddr *)&serverAddr, (socklen_t *)&sLen) == -1)
 		die("recvfrom()");
 
-	int flags = 1;
 	if (fcntl(s, F_SETFL, O_NONBLOCK) == -1)
 		die("fcntl");
 
 	fd_set fds;
-	int state = 0, ackRecv = 1, retransmit = 0;
+	int state = 0, ackRecv = 1, retransmit = 0, offset = 0;
 	while (!(fileEnd && ackRecv)) {
 		timeout.tv_sec = 2;
 		switch (state) {
 		case 0: {
 			if (ackRecv) {
-				getNextData(send_pkt.data);
-				send_pkt.size = strlen(send_pkt.data);
-				send_pkt.type = 'D';
+				getNextData(sendPkt.data);
+				sendPkt.sq_no = offset;
+				sendPkt.size = strlen(sendPkt.data);
+				sendPkt.type = 'D';
 			} else
 				retransmit = 1;
-			if (sendto(s, &send_pkt, sizeof(DATA_PKT), 0, (struct sockaddr *)&serverAddr, sLen) == -1)
+			if (sendto(s, &sendPkt, sizeof(DATA_PKT), 0, (struct sockaddr *)&serverAddr, sLen) == -1)
 				die("sendto()");
 
 			ackRecv = 0;
 
 			if (!retransmit)
-				printf("SENT PKT: Seq. No. = %d, Size = %d Bytes\n", send_pkt.sq_no, send_pkt.size);
+				printf("SENT PKT: Seq. No. = %d, Size = %d Bytes\n", sendPkt.sq_no, sendPkt.size);
 			else {
-				printf("RE-TRANSMIT PKT: Seq. No. = %d, Size = %d Bytes\n", send_pkt.sq_no, send_pkt.size);
+				printf("RE-TRANSMIT PKT: Seq. No. = %d, Size = %d Bytes\n", sendPkt.sq_no, sendPkt.size);
 				retransmit = 0;
 			}
 
@@ -128,14 +128,19 @@ int main(void)
 				break;
 			}
 
-			if (recvfrom(s, &rcv_ack, sizeof(ACK_PKT), 0, (struct sockaddr *)&serverAddr, (socklen_t *)&sLen) == -1)
+			if (recvfrom(s, &rcvAck, sizeof(ACK_PKT), 0, (struct sockaddr *)&serverAddr, (socklen_t *)&sLen) == -1)
 				die("recvfrom()");
+
+			printf("RCVD ACK: Seq. No. = %d\n", rcvAck.sq_no);
+
+			if (rcvAck.sq_no != offset) {
+				state = 0;
+				break;
+			}
 			ackRecv = 1;
 
-			printf("RCVD ACK: Seq. No. = %d\n", rcv_ack.sq_no);
 
-			if (rcv_ack.sq_no == send_pkt.sq_no)
-				send_pkt.sq_no += send_pkt.size;
+			offset = sendPkt.sq_no + sendPkt.size;
 
 			state = 0;
 			break;
